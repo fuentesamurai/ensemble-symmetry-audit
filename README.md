@@ -176,11 +176,25 @@ single decision.
 
 ## Roadmap
 
-- v0.5: First-class adapters for sklearn `VotingClassifier`,
+**Latest — v0.4.0** (May 2026):
+- `participation_monotonicity` detector (hard + soft) — catches the
+  no-show paradox.
+- `soft_continuity` is now boundary-aware (no more false positives
+  near tight ties).
+- `permutation_invariance` defaults to exhaustive adjacent
+  transpositions.
+- Hypothesis moved to the optional `[shrink]` extra.
+- README split into a focused top-level file plus `docs/`.
+
+**Next:**
+- **v0.5** — first-class adapters for sklearn `VotingClassifier`,
   `StackingClassifier`, XGBoost / LightGBM ensembles.
-- v0.6: CI reporters (JUnit XML, GitHub Actions annotations) and
+- **v0.6** — CI reporters (JUnit XML, GitHub Actions annotations) and
   HTML / Markdown report exporters.
-- v0.7: Soft-vote calibration property tests.
+- **v0.7** — soft-vote calibration property tests.
+
+See [Releases](https://github.com/fuentesamurai/ensemble-symmetry-audit/releases)
+for the full version history.
 
 ## Contributing
 
