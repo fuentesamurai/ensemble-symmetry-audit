@@ -91,7 +91,16 @@ def balanced_input_symmetry(
     at random, then runs a chi-squared goodness-of-fit test against the
     uniform distribution. The detector fails when the test rejects the
     null at level `alpha` (default 1%).
+
+    Along with the p-value the result reports **effect size** (Cohen's w
+    and the maximum relative deviation from uniform): with `n_trials =
+    2000` chi-squared rejects vanishingly small biases that may not be
+    actionable. Reading p-value and effect size together lets you
+    distinguish "statistically significant but tiny" from "structurally
+    important". As a rule of thumb (Cohen 1988):
+    w ≈ 0.1 small, 0.3 medium, 0.5 large.
     """
+    import math
     rng = random.Random(seed)
     outputs: list[Vote] = []
     for _ in range(n_trials):
@@ -104,6 +113,10 @@ def balanced_input_symmetry(
 
     res = chisquare(f_obs=observed, f_exp=expected)
     chi2, p = float(res.statistic), float(res.pvalue)
+    cohens_w = math.sqrt(chi2 / n_trials) if n_trials > 0 else 0.0
+    max_rel_dev = max(
+        abs(o - e) / e for o, e in zip(observed, expected)
+    ) if expected[0] > 0 else 0.0
     passed = p >= alpha
 
     counterexample = None if passed else {
@@ -121,8 +134,15 @@ def balanced_input_symmetry(
             "p_value": round(p, 4),
             "alpha": alpha,
             "df": len(classes) - 1,
+            "cohens_w": round(cohens_w, 3),
+            "max_relative_deviation": round(max_rel_dev, 3),
         },
-        notes="Uniform input distribution should yield uniform output (chi-squared test).",
+        notes=(
+            "Uniform input distribution should yield uniform output "
+            "(chi-squared test). Effect size (Cohen's w) and "
+            "max_relative_deviation distinguish significant-but-small "
+            "from structurally important deviations."
+        ),
     )
 
 

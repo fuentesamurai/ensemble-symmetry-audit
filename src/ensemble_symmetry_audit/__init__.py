@@ -60,7 +60,7 @@ __all__ = [
     "soft_regime_flip_invariance",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 
 def __getattr__(name):

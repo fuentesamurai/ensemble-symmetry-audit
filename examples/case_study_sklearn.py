@@ -1,14 +1,16 @@
-"""Case study: auditing scikit-learn's voting ensembles for structural bias.
+"""Case study: quantifying the structural cost of np.argmax tie-breaks
+in scikit-learn's voting ensembles.
 
 We wrap the aggregation step of sklearn's most-used voting ensembles
 (VotingClassifier, BaggingClassifier, RandomForestClassifier,
 ExtraTreesClassifier) and run them through the hard and soft audit
 suites across a grid of (n_classes, n_voters) configurations.
 
-The aim is to quantify positional bias introduced by `np.argmax`'s
-left-favouring tie-break — a behaviour present in every sklearn
-ensemble that ends in `argmax`. The bias is invisible in unit tests
-and absent from the API documentation.
+np.argmax(np.bincount(...)) is a documented, deterministic design
+choice — not a bug. The aim of this case study is to *quantify* its
+effect under uniform symmetric input, so users can decide for their
+own class set and voter count whether the positional tie-break is
+acceptable.
 
 Run:
 
@@ -204,7 +206,7 @@ def main():
 
     # Headline numbers
     print("\n" + "=" * 90)
-    print("HEADLINE FINDINGS")
+    print("HEADLINE NUMBERS (the structural cost of the argmax tie-break)")
     print("=" * 90)
     hard_failures = [r for r in hard_rows if not r["balanced_passed"]]
     soft_failures = [r for r in soft_rows if not r["balanced_passed"]]

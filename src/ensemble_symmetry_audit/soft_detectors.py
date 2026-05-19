@@ -49,8 +49,12 @@ def soft_balanced_input_symmetry(
     produce a roughly uniform output distribution.
 
     Uses Dirichlet(alpha=1, ..., 1) — i.e. uniform on the probability
-    simplex — for each voter, independent across voters.
+    simplex — for each voter, independent across voters. Reports
+    chi-squared p-value alongside effect size (Cohen's w) so that
+    statistically-significant-but-small deviations can be distinguished
+    from structurally important ones.
     """
+    import math
     rng = np.random.default_rng(seed)
     n_classes = len(classes)
     outputs: list[Any] = []
@@ -66,6 +70,10 @@ def soft_balanced_input_symmetry(
     expected = [n_trials / n_classes] * n_classes
     res = chisquare(f_obs=observed, f_exp=expected)
     chi2, p = float(res.statistic), float(res.pvalue)
+    cohens_w = math.sqrt(chi2 / n_trials) if n_trials > 0 else 0.0
+    max_rel_dev = max(
+        abs(o - e) / e for o, e in zip(observed, expected)
+    ) if expected[0] > 0 else 0.0
     passed = p >= alpha
 
     counterexample = None if passed else {
@@ -83,8 +91,13 @@ def soft_balanced_input_symmetry(
             "p_value": round(p, 4),
             "alpha": alpha,
             "df": n_classes - 1,
+            "cohens_w": round(cohens_w, 3),
+            "max_relative_deviation": round(max_rel_dev, 3),
         },
-        notes="Dirichlet-uniform soft votes should yield uniform output (chi-squared).",
+        notes=(
+            "Dirichlet-uniform soft votes should yield uniform output "
+            "(chi-squared with effect-size reporting)."
+        ),
     )
 
 
