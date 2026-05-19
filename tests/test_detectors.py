@@ -4,10 +4,12 @@ import hashlib
 import random
 from collections import Counter
 
-from ensemble_bias_detector.detectors import (
+from ensemble_symmetry_audit.detectors import (
     balanced_input_symmetry,
+    independence_of_irrelevant_alternatives,
     monotonicity,
     null_majority_abstention,
+    pareto_unanimity,
     permutation_invariance,
     regime_flip_invariance,
     tie_break_determinism,
@@ -21,13 +23,7 @@ FLIP = {"A": "B", "B": "A", "C": "C"}
 # --- reference aggregators -------------------------------------------------
 
 def fair_majority(votes):
-    """Majority with a multiset-based hash tie-break.
-
-    The tie-break must be permutation-invariant, so we hash the *sorted*
-    multiset of votes rather than the raw sequence. This keeps the
-    aggregator deterministic, label-symmetric on random input, and
-    independent of voter order.
-    """
+    """Majority with a multiset-based hash tie-break (permutation-invariant)."""
     counts = Counter(votes)
     top = max(counts.values())
     winners = sorted(c for c, k in counts.items() if k == top)
@@ -53,7 +49,7 @@ def random_tie_break(votes):
     counts = Counter(votes)
     top = max(counts.values())
     winners = [c for c, k in counts.items() if k == top]
-    return random.choice(winners)  # non-deterministic on ties
+    return random.choice(winners)
 
 
 def antitone(votes):
@@ -76,17 +72,19 @@ def never_neutral(votes):
     return winners[0]
 
 
+def constant_A(votes):
+    """Adversarial: always returns A regardless of input. Violates Pareto."""
+    return "A"
+
+
 # --- balanced_input_symmetry -----------------------------------------------
 
 def test_balanced_input_passes_for_fair():
-    # With 2 labels and an odd number of voters, ties are impossible —
-    # the aggregator reduces to a pure label-symmetric majority and the
-    # output distribution is provably uniform on uniform input. With 3+
-    # classes, every deterministic tie-break introduces some asymmetry,
-    # which the detector also catches (see README for the discussion).
     binary_classes = ["UP", "DOWN"]
     r = balanced_input_symmetry(fair_majority, binary_classes, n_voters=11, seed=0)
     assert r.passed, r
+    assert r.statistic["test"] == "chi-squared"
+    assert "p_value" in r.statistic
 
 
 def test_balanced_input_fails_for_biased():
@@ -99,15 +97,10 @@ def test_balanced_input_fails_for_biased():
 # --- regime_flip_invariance ------------------------------------------------
 
 def test_regime_flip_passes_for_fair():
-    # Use a binary, fully-flippable label set with odd voters so ties are
-    # impossible. Mixing a deterministic tie-break with a 3-class flip is
-    # provably ambiguous (the multiset is flip-invariant but the picked
-    # winner is not), so we keep the flip test on a setting that
-    # admits a clean reference aggregator.
     binary_classes = ["UP", "DOWN"]
     binary_flip = {"UP": "DOWN", "DOWN": "UP"}
     r = regime_flip_invariance(fair_majority, binary_classes, binary_flip,
-                                n_voters=11, seed=0)
+                               n_voters=11, seed=0)
     assert r.passed, r
 
 
@@ -120,12 +113,8 @@ def test_regime_flip_fails_for_biased():
 # --- null_majority_abstention ---------------------------------------------
 
 def test_null_majority_passes_for_fair():
-    # With C as neutral, when A and B votes are balanced, fair_majority
-    # falls back to alphabetical ordering on ties — which is fine: ties
-    # are common, so the neutral rate should still be high.
     def neutral_on_tie(votes):
         counts = Counter(votes)
-        # if non-neutral classes tie at top, pick neutral
         non_neutral_counts = {c: counts.get(c, 0) for c in CLASSES if c != "C"}
         if len(set(non_neutral_counts.values())) == 1:
             return "C"
@@ -135,6 +124,7 @@ def test_null_majority_passes_for_fair():
         neutral_on_tie, CLASSES, neutral_class="C", n_voters=10, seed=0
     )
     assert r.passed, r
+    assert r.statistic["test"] == "binomial"
 
 
 def test_null_majority_fails_for_aggregator_that_never_picks_neutral():
@@ -182,3 +172,42 @@ def test_tie_break_fails_for_random_tie_break():
     r = tie_break_determinism(random_tie_break, CLASSES, n_voters=4, seed=0)
     assert not r.passed
     assert r.counterexample is not None
+
+
+# --- pareto_unanimity (NEW) -----------------------------------------------
+
+def test_pareto_passes_for_fair():
+    r = pareto_unanimity(fair_majority, CLASSES, n_voters=7, seed=0)
+    assert r.passed, r
+
+
+def test_pareto_fails_for_constant_aggregator():
+    r = pareto_unanimity(constant_A, CLASSES, n_voters=7, seed=0)
+    assert not r.passed
+    assert r.counterexample is not None
+    # Unanimity for non-A classes is violated
+    assert r.counterexample["unanimous_for"] != "A"
+
+
+# --- independence_of_irrelevant_alternatives (NEW) ------------------------
+
+def test_iia_skipped_for_binary():
+    r = independence_of_irrelevant_alternatives(
+        fair_majority, ["UP", "DOWN"], n_voters=11, seed=0
+    )
+    assert r.passed
+    assert r.cases_tested == 0
+
+
+def test_iia_runs_for_three_classes():
+    # IIA is mostly expected to fail for non-trivial 3-class aggregators
+    # (Arrow's theorem). We just verify the detector runs and produces a
+    # well-formed result.
+    r = independence_of_irrelevant_alternatives(
+        fair_majority, CLASSES, n_voters=9, seed=0
+    )
+    assert r.cases_tested > 0
+    if not r.passed:
+        assert r.counterexample is not None
+        assert "winner" in r.counterexample
+        assert "new_winner" in r.counterexample

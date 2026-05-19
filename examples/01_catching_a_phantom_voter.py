@@ -10,7 +10,7 @@ exactly the properties designed to catch a hidden directional skew.
 """
 
 from collections import Counter
-from ensemble_bias_detector import audit
+from ensemble_symmetry_audit import audit
 
 
 CLASSES = ["UP", "DOWN"]

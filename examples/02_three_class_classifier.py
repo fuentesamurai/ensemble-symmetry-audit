@@ -22,7 +22,7 @@ read the audit reports — every aggregator has a story to tell.
 
 import hashlib
 from collections import Counter
-from ensemble_bias_detector import audit
+from ensemble_symmetry_audit import audit
 
 
 CLASSES = ["A", "B", "C"]

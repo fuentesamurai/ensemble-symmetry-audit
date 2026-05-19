@@ -1,51 +1,60 @@
-# ensemble-bias-detector
+# ensemble-symmetry-audit
 
-Property-based bias detectors for voting ensembles.
+Property-based audit of voting ensemble aggregators.
 
-A small, dependency-free Python library that audits any voting / majority
-aggregator for the structural properties it ought to satisfy and surfaces
-counterexamples when it does not.
+A small Python library that audits any voting, majority, or weighted-vote
+aggregator against eight structural properties from social-choice theory
+and reports a minimal counterexample whenever one fails.
+
+> **Note on the name.** *Symmetry* here means structural symmetry of the
+> aggregation rule (Pareto, IIA, monotonicity, flip invariance, permutation
+> invariance, tie-break determinism). This library does **not** audit
+> demographic bias in the underlying classifiers — that is a separate
+> problem with its own established tooling. See `Scope` below.
 
 ## Why this exists
 
 You can have eleven well-behaved voters and a clean weighted-majority
-aggregator and still ship an ensemble that votes the same way 90%+ of
-the time on inputs where it should be agnostic. The voters are
-individually correct. The aggregator is mathematically correct. The
-bias only appears in the joint distribution — exactly what unit tests
-miss and property-based tests are designed to catch.
+aggregator and still ship an ensemble that picks the same class on 90%+
+of inputs where it should be agnostic. Every voter is individually
+unbiased. The aggregator is mathematically correct. The bias only
+appears in the *joint distribution* of voters + aggregation rule —
+which unit tests do not reach and property-based tests are designed to
+expose.
 
-This library is a battery of six such property tests, packaged so you
-can drop it into any project and audit your aggregator in a few lines.
+This library is the audit suite I wish I had shipped with.
 
 ## What it tests
 
-Six properties every sensible voting aggregator should satisfy:
+| # | Property                                          | What it catches                                                                                                     |
+|---|---------------------------------------------------|---------------------------------------------------------------------------------------------------------------------|
+| 1 | **Pareto / unanimity** (May 1952)                 | Aggregators that override a unanimous vote (weight bugs, miscalibrated thresholds, hidden defaults)                |
+| 2 | **Balanced-input symmetry** (chi-squared test)    | A silent skew toward one class under uniform random input                                                          |
+| 3 | **Regime-flip invariance**                        | Asymmetric reaction to mirror-image inputs                                                                          |
+| 4 | **Null-majority abstention** *(opt-in, binomial)* | Picking sides when the evidence is balanced — useful where abstention is permitted                                 |
+| 5 | **Monotonicity**                                  | More votes for X paradoxically reducing X's chance of winning                                                       |
+| 6 | **Permutation invariance**                        | Output depending on voter order                                                                                     |
+| 7 | **Tie-break determinism**                         | Same input producing different outputs across runs                                                                  |
+| 8 | **Independence of Irrelevant Alternatives** (Arrow 1951) | Adding or removing a losing class flipping the winner (Arrow's theorem proves no 3+ class rule satisfies this) |
 
-| # | Property                       | What it catches                                              |
-|---|--------------------------------|--------------------------------------------------------------|
-| 1 | Balanced-input symmetry        | A silent skew toward one class under uniform random input   |
-| 2 | Regime-flip invariance         | Asymmetric reaction to mirror-image inputs                  |
-| 3 | Null-majority abstention       | Picking sides when the evidence is even                     |
-| 4 | Monotonicity                   | More votes for X paradoxically reducing X's chance of winning |
-| 5 | Permutation invariance         | Output depending on voter order                             |
-| 6 | Tie-break determinism          | Same input producing different outputs across runs          |
-
-All detectors are pure Python, zero runtime dependencies.
+Where statistical claims are made, the detector reports a formal test
+result (chi-squared goodness-of-fit, one-sided binomial) with an
+explicit significance level, so the audit conclusions are reproducible
+across runs and defensible against reviewers.
 
 ## Install
 
 ```
-pip install ensemble-bias-detector
+pip install ensemble-symmetry-audit
 ```
 
-Python 3.10+.
+Python 3.10+. Requires `scipy>=1.10` (used for `chisquare` and `binomtest`).
 
 ## Quick start
 
 ```python
 from collections import Counter
-from ensemble_bias_detector import audit
+from ensemble_symmetry_audit import audit
 
 
 def my_ensemble(votes):
@@ -62,19 +71,30 @@ report = audit(
 print(report)
 ```
 
-Output:
+Output (abbreviated):
 
 ```
-Ensemble bias audit report
-----------------------------------------
-[PASS] balanced_input_symmetry  (2000 cases)
-[PASS] regime_flip_invariance   (500 cases)
-[PASS] monotonicity[UP]         (200 cases)
-[PASS] monotonicity[DOWN]       (200 cases)
-[PASS] permutation_invariance   (200 cases)
-[PASS] tie_break_determinism    (200 cases)
-----------------------------------------
+Ensemble symmetry audit report
+--------------------------------------------------
+[PASS] pareto_unanimity            (200 cases)
+[PASS] balanced_input_symmetry     (2000 cases)
+         statistic: test=chi-squared, chi2=0.072, p_value=0.7886, alpha=0.01, df=1
+[PASS] regime_flip_invariance      (500 cases)
+[PASS] monotonicity[UP]            (200 cases)
+[PASS] monotonicity[DOWN]          (200 cases)
+[PASS] permutation_invariance      (200 cases)
+[PASS] tie_break_determinism       (200 cases)
+[PASS] independence_of_irrelevant_alternatives  (0 cases — binary)
+--------------------------------------------------
 ALL PROPERTIES HELD
+```
+
+For CI integration:
+
+```python
+report.to_json()  # JSON-serialisable audit log
+report.all_passed
+report.failed     # list of failed DetectorResult objects
 ```
 
 ## Catching a phantom voter
@@ -89,124 +109,119 @@ print(audit(biased_ensemble, classes=["UP", "DOWN"], n_voters=11,
             flip_map={"UP": "DOWN", "DOWN": "UP"}))
 ```
 
-Output (abbreviated):
-
 ```
-[FAIL] balanced_input_symmetry  (2000 cases)
-         counterexample: {'observed_counts': {'UP': 576, 'DOWN': 1424},
-         'max_relative_deviation': 0.424, ...}
-[FAIL] regime_flip_invariance   (500 cases)
+[FAIL] balanced_input_symmetry     (2000 cases)
+         statistic: chi2=358.4, p_value=0.0000, alpha=0.01
+         counterexample: {'observed_counts': {'UP': 576, 'DOWN': 1424}, ...}
+[FAIL] regime_flip_invariance      (500 cases)
          counterexample: {'out_original': 'DOWN', 'out_flipped': 'DOWN',
-         'expected_flipped': 'UP'}
+                          'expected_flipped': 'UP'}
 ```
 
-The library does not just fail — it tells you which property failed
-and shows you a concrete input that breaks it.
+The report tells you which property failed, the test statistic that
+detected it, and a minimal concrete input that reproduces the failure.
 
-## Three or more classes: the harder case
+## Three or more classes: Arrow's theorem in practice
 
 Writing a deterministic aggregator that passes every property over
-three or more classes is genuinely difficult. Three innocent-looking
-3-class aggregators audited side by side:
+three or more classes is **provably impossible** without giving up some
+desirable structural property. Arrow's theorem (1951) proves that no
+deterministic non-dictatorial rule over 3+ alternatives can simultaneously
+satisfy unanimity (Pareto), independence of irrelevant alternatives
+(IIA), and universal domain.
 
-```python
-def naive(votes):
-    # Counter insertion order silently picks tied winners
-    return Counter(votes).most_common(1)[0][0]
+The library does not try to hide this. It quantifies *where* and *how
+often* each property fails for your particular aggregator and class
+count. `examples/02_three_class_classifier.py` audits three
+innocent-looking three-class rules side by side:
 
-def alphabetical(votes):
-    counts = Counter(votes)
-    top = max(counts.values())
-    return sorted(c for c, k in counts.items() if k == top)[0]
+- **`Counter.most_common`** passes balance but fails permutation
+  invariance (insertion-order tie-break).
+- **Alphabetical tie-break** passes permutation but fails balance
+  (≈ 28% skew toward earlier-sorted labels).
+- **Hash-based tie-break on the sorted multiset** passes both for
+  uniform input but fails IIA — predictable, given Arrow's theorem.
 
-def hash_break(votes):
-    import hashlib
-    counts = Counter(votes)
-    top = max(counts.values())
-    winners = sorted(c for c, k in counts.items() if k == top)
-    if len(winners) == 1:
-        return winners[0]
-    key = ",".join(sorted(map(str, votes)))
-    return winners[hashlib.md5(key.encode()).digest()[0] % len(winners)]
-```
-
-Running each through `audit(fn, ["A", "B", "C"], n_voters=11)`:
-
-- **naive** passes the balance test but fails permutation invariance —
-  its tie-break leaks the order voters arrived in.
-- **alphabetical** is permutation-invariant but visibly favours A
-  over B over C on uniform random input (around 28% deviation).
-- **hash_break** is the closest to fair, but on three or more classes
-  some residual bias is unavoidable in any *deterministic* tie-break.
-
-See `examples/02_three_class_classifier.py` for the full run. The
-larger point: voting aggregation has subtler failure modes than unit
-tests reach, and the difficulty grows with the number of classes.
-
-## Who this is for
-
-- ML engineers shipping multi-classifier voting ensembles
-- Quantitative researchers using model-vote decision rules
-- Anyone building credit-scoring, triage, moderation, or recommender
-  systems that aggregate several signals into a single choice
-- Anyone who has ever stared at a confusion matrix wondering why one
-  class wins almost every time
-
-The asymmetry these tests catch is domain-agnostic. The same
-detectors that audit a trading signal aggregator will audit a
-medical-triage classifier or a recommender vote.
+`examples/03_sklearn_voting_classifier.py` does the same audit on
+`sklearn.ensemble.VotingClassifier` — the hard-voting rule there is
+`np.argmax(np.bincount(...))`, which silently favours lower-indexed
+labels.
 
 ## Calling individual detectors
 
-If you don't want the full battery, every detector is exported:
-
 ```python
-from ensemble_bias_detector import balanced_input_symmetry
+from ensemble_symmetry_audit import balanced_input_symmetry
 
 result = balanced_input_symmetry(
     my_ensemble,
     classes=["A", "B", "C"],
     n_voters=11,
-    n_trials=2000,
-    tolerance=0.10,
+    n_trials=5000,
+    alpha=0.005,
+    seed=42,
 )
 print(result)
 ```
 
 Each detector returns a `DetectorResult` with `passed`, `cases_tested`,
-`counterexample`, and `notes` fields.
+`counterexample`, `statistic`, and `notes` fields. `result.to_dict()`
+gives a machine-readable representation.
 
 ## Integrating into pytest
 
 ```python
-from ensemble_bias_detector import audit
+from ensemble_symmetry_audit import audit
 
-def test_ensemble_is_unbiased():
+def test_ensemble_is_symmetric():
     report = audit(my_ensemble, classes=["UP", "DOWN"],
                    n_voters=11,
                    flip_map={"UP": "DOWN", "DOWN": "UP"})
     assert report.all_passed, str(report)
 ```
 
-## What the library does *not* do
+## Scope
 
-- It does not test predictive accuracy. A perfectly unbiased aggregator
-  can still be a bad model. This library only audits structural
-  properties of the aggregation step.
-- It does not assume a probabilistic interpretation of votes. If your
-  votes carry weights or confidences, wrap your aggregator in a
-  function that accepts a list of votes and returns a decision.
-- It does not replace domain validation. Some aggregators are
-  deliberately biased (e.g. a safety classifier that errs on the side
-  of caution). The library flags asymmetry; you decide whether the
-  asymmetry is intentional.
+**What this library audits:** the *aggregation function* of a voting
+ensemble — the code that combines votes / scores / predictions into a
+single decision.
+
+**What it does *not* audit:**
+
+- Predictive accuracy or generalisation of the underlying classifiers.
+- Demographic bias (race, gender, age, geography) in the underlying
+  classifiers or in their training data. That is a different problem
+  with different tooling (`fairlearn`, `aif360`, etc.).
+- Soft / probabilistic votes (List[Dict[class, prob]]). The current
+  version handles categorical votes only; probabilistic support is on
+  the roadmap.
+
+If your aggregation step is non-trivial enough to warrant an audit,
+this library is for you. If you need to audit demographic fairness or
+classifier accuracy, use the established tools for those problems.
+
+## Roadmap
+
+- v0.3: Hypothesis integration (directed counterexample search +
+  shrinking), soft-voting / probabilistic vote support.
+- v0.4: Adapters for sklearn `VotingClassifier`, `StackingClassifier`,
+  XGBoost / LightGBM ensembles.
+- v0.5: CI reporters (JUnit XML, GitHub Actions annotations).
 
 ## Contributing
 
 Issues and pull requests welcome. The project is small on purpose —
-six detectors, no dependencies. Additions are considered if they
-describe a property that's both broadly applicable and reasonably
-likely to be violated in practice.
+eight properties grounded in social-choice theory, no scope creep
+toward classifier-level audits. Additions are considered if they
+describe a property both broadly applicable and reasonably likely to
+be violated in practice.
+
+## References
+
+- Kenneth J. Arrow, *Social Choice and Individual Values* (1951).
+- Kenneth O. May, "A Set of Independent Necessary and Sufficient
+  Conditions for Simple Majority Decision" (1952).
+- John Hughes & Koen Claessen, "QuickCheck: A Lightweight Tool for
+  Random Testing of Haskell Programs" (1999).
 
 ## License
 

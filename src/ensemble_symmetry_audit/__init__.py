@@ -1,4 +1,4 @@
-"""Property-based bias detectors for voting ensembles."""
+"""Property-based audit of voting ensemble aggregators."""
 
 from .api import audit, AuditReport
 from .detectors import (
@@ -9,6 +9,8 @@ from .detectors import (
     monotonicity,
     permutation_invariance,
     tie_break_determinism,
+    pareto_unanimity,
+    independence_of_irrelevant_alternatives,
 )
 
 __all__ = [
@@ -21,6 +23,8 @@ __all__ = [
     "monotonicity",
     "permutation_invariance",
     "tie_break_determinism",
+    "pareto_unanimity",
+    "independence_of_irrelevant_alternatives",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
