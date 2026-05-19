@@ -17,6 +17,7 @@ from .detectors import (
     monotonicity,
     null_majority_abstention,
     pareto_unanimity,
+    participation_monotonicity,
     permutation_invariance,
     regime_flip_invariance,
     tie_break_determinism,
@@ -129,6 +130,11 @@ def audit(
             continue
         report.results.append(
             monotonicity(vote_fn, classes, target, n_voters, seed=seed + 4)
+        )
+        report.results.append(
+            participation_monotonicity(
+                vote_fn, classes, target, n_voters, seed=seed + 8,
+            )
         )
     report.results.append(
         permutation_invariance(vote_fn, classes, n_voters, seed=seed + 5)

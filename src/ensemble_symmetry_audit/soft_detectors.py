@@ -5,33 +5,22 @@ distributions per voter:
 
     vote_fn: List[Dict[class, prob]] -> class
 
-Each detector follows the same pattern as the hard-voting suite:
-generate inputs from a Hypothesis-style strategy, evaluate the
-aggregator, and either run a statistical test or search for a
-counterexample.
-
-For counterexample-seeking detectors we use `hypothesis.find()`, which
-performs directed search and automatic shrinking — so when a property
-fails the reported counterexample is *minimal*, not just the first one
-hit by random sampling.
+Each detector samples random inputs from a numpy-seeded RNG, evaluates
+the aggregator, and either runs a statistical test (balance) or
+searches for a counterexample. For deeper directed search with
+automatic shrinking, see `ensemble_symmetry_audit.hypothesis_search`
+(requires the optional `[shrink]` extra).
 """
 
 from __future__ import annotations
 
-import math
-import random
 from collections import Counter
-from typing import Any, Callable, Dict, List, Mapping, Sequence
+from typing import Any, Callable, Dict, Mapping, Sequence
 
 import numpy as np
-from hypothesis import HealthCheck, find, settings, strategies as st
 from scipy.stats import chisquare
 
 from .detectors import DetectorResult
-from .strategies import (
-    probability_distributions,
-    probability_vote_lists,
-)
 
 ProbVote = Dict[Any, float]
 SoftVoteFunction = Callable[[Sequence[ProbVote]], Any]
@@ -302,26 +291,47 @@ def soft_permutation_invariance(
 # Soft continuity (NEW property only relevant to soft voting)
 # ---------------------------------------------------------------------------
 
+def _summed_probs(votes, classes):
+    """Helper: return averaged probability vector over voters."""
+    summed = np.zeros(len(classes))
+    for v in votes:
+        for i, c in enumerate(classes):
+            summed[i] += v.get(c, 0.0)
+    return summed / len(votes)
+
+
 def soft_continuity(
     vote_fn: SoftVoteFunction,
     classes: Sequence[Any],
     n_voters: int,
     n_trials: int = 200,
     epsilon: float = 1e-3,
+    margin_threshold: float = 0.02,
     seed: int = 42,
 ) -> DetectorResult:
-    """Tiny perturbations to a voter's probability should not flip output
-    when the original decision is far from a tie.
+    """Far from the decision boundary, small perturbations should not
+    flip the output.
 
-    For each random input whose `vote_fn` output is X, perturb one
-    voter's probabilities by epsilon-magnitude noise (renormalised) and
-    check the output is still X. Discontinuities near tight decision
-    boundaries are expected and tolerated by sampling many trials and
-    flagging only when the violation rate is large.
+    For each random ballot we measure the *decision margin*: the gap
+    between the winning class's averaged probability and the second
+    best. Cases with margin <= `margin_threshold` are tied (or
+    near-tied) by construction — a perturbation flipping the output
+    is mathematically expected there and is NOT a property violation.
+
+    Cases with margin > `margin_threshold` are "robustly decided";
+    perturbations of magnitude ε should not flip the output. The
+    detector counts violations only among these robust cases.
+
+    Output reports both the robust-case violation rate (the property
+    that matters) and the share of inputs that landed near the
+    boundary (informational, useful for choosing
+    `margin_threshold` / `epsilon`).
     """
     rng = np.random.default_rng(seed)
-    n_violations = 0
-    n_eligible = 0
+    n_robust = 0
+    n_robust_flips = 0
+    n_near_boundary = 0
+    n_near_boundary_flips = 0
     sample_violation: dict | None = None
     n_classes = len(classes)
 
@@ -331,6 +341,10 @@ def soft_continuity(
             probs = rng.dirichlet(np.ones(n_classes))
             votes.append({c: float(p) for c, p in zip(classes, probs)})
         out_a = vote_fn(votes)
+        avg = _summed_probs(votes, classes)
+        sorted_avg = np.sort(avg)[::-1]
+        margin = float(sorted_avg[0] - sorted_avg[1])
+
         idx = int(rng.integers(0, n_voters))
         noise = rng.normal(0.0, epsilon, size=n_classes)
         new_probs = np.array([votes[idx][c] for c in classes]) + noise
@@ -340,31 +354,119 @@ def soft_continuity(
         new_votes = list(votes)
         new_votes[idx] = new_vote
         out_b = vote_fn(new_votes)
-        n_eligible += 1
-        if out_a != out_b:
-            n_violations += 1
-            if sample_violation is None:
-                sample_violation = {
-                    "perturbation_epsilon": epsilon,
-                    "perturbed_voter": idx,
-                    "out_before": out_a,
-                    "out_after": out_b,
-                }
+        flipped = out_a != out_b
 
-    rate = n_violations / max(n_eligible, 1)
-    # A reasonable aggregator should flip on epsilon=1e-3 perturbations
-    # only for inputs already at a tight tie. Allow up to 5% flip rate.
-    passed = rate <= 0.05
+        if margin > margin_threshold:
+            n_robust += 1
+            if flipped:
+                n_robust_flips += 1
+                if sample_violation is None:
+                    sample_violation = {
+                        "epsilon": epsilon,
+                        "margin": round(margin, 4),
+                        "perturbed_voter": idx,
+                        "out_before": out_a,
+                        "out_after": out_b,
+                    }
+        else:
+            n_near_boundary += 1
+            if flipped:
+                n_near_boundary_flips += 1
+
+    robust_rate = n_robust_flips / max(n_robust, 1)
+    boundary_rate = n_near_boundary_flips / max(n_near_boundary, 1)
+    # Allow up to 1% robust-case flips — near-zero is the textbook
+    # expectation when margin > 2 epsilon.
+    tolerance = 0.01
+    passed = robust_rate <= tolerance and n_robust > 0
     return DetectorResult(
         name="soft_continuity",
         passed=passed,
-        cases_tested=n_eligible,
+        cases_tested=n_trials,
         counterexample=sample_violation if not passed else None,
         statistic={
             "epsilon": epsilon,
-            "violation_rate": round(rate, 4),
-            "tolerance": 0.05,
-            "n_violations": n_violations,
+            "margin_threshold": margin_threshold,
+            "robust_cases": n_robust,
+            "robust_flip_rate": round(robust_rate, 4),
+            "tolerance": tolerance,
+            "near_boundary_cases": n_near_boundary,
+            "near_boundary_flip_rate": round(boundary_rate, 4),
         },
-        notes="Small probability perturbations should rarely flip the output.",
+        notes=(
+            "Robust cases (margin > margin_threshold) should not flip "
+            "under epsilon-magnitude perturbations. Near-boundary cases "
+            "are reported separately — flips there are mathematically "
+            "expected, not bugs."
+        ),
+    )
+
+
+def soft_participation_monotonicity(
+    vote_fn: SoftVoteFunction,
+    classes: Sequence[Any],
+    target_class: Any,
+    n_voters: int,
+    confidence: float = 0.9,
+    n_trials: int = 200,
+    seed: int = 42,
+) -> DetectorResult:
+    """Adding a new voter whose probability mass concentrates on X
+    should not move the winner away from X.
+
+    Soft-voting analogue of `participation_monotonicity`. The added
+    voter's probability vector puts `confidence` mass on
+    `target_class` and the remainder uniformly over the other classes.
+
+    Catches the no-show paradox in probabilistic aggregators with
+    non-linear combination rules.
+    """
+    if n_voters < 2:
+        return DetectorResult(
+            name=f"soft_participation_monotonicity[{target_class}]",
+            passed=True,
+            cases_tested=0,
+            notes="Participation monotonicity is trivial for n_voters < 2 — skipped.",
+        )
+
+    rng = np.random.default_rng(seed)
+    n_classes = len(classes)
+    others = [c for c in classes if c != target_class]
+    per_other = (1.0 - confidence) / max(len(others), 1)
+    new_voter = {c: per_other for c in others}
+    new_voter[target_class] = confidence
+
+    violations: list[dict] = []
+    n_eligible = 0
+    for _ in range(n_trials):
+        small = []
+        for _ in range(n_voters - 1):
+            probs = rng.dirichlet(np.ones(n_classes))
+            small.append({c: float(p) for c, p in zip(classes, probs)})
+        out_small = vote_fn(small)
+        if out_small != target_class:
+            continue
+        n_eligible += 1
+        out_added = vote_fn(small + [dict(new_voter)])
+        if out_added != target_class:
+            violations.append({
+                "added_voter_confidence_on": target_class,
+                "added_voter_confidence": confidence,
+                "winner_without_new_voter": out_small,
+                "winner_with_new_voter": out_added,
+            })
+            if len(violations) >= 3:
+                break
+
+    passed = not violations
+    return DetectorResult(
+        name=f"soft_participation_monotonicity[{target_class}]",
+        passed=passed,
+        cases_tested=n_eligible,
+        counterexample=violations[0] if violations else None,
+        statistic={"trials_total": n_trials, "trials_eligible": n_eligible},
+        notes=(
+            "Adding a high-confidence X voter must not move the winner "
+            "away from X (soft no-show paradox)."
+        ),
     )

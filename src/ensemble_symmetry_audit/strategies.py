@@ -7,13 +7,24 @@ Two families:
 These are the natural building blocks for property tests that drive the
 auditor with Hypothesis. They can also be used independently in user
 tests via @given.
+
+Hypothesis is an *optional* runtime dependency. If it is not installed,
+importing this module raises a friendly ImportError that points at the
+`shrink` extra.
 """
 
 from __future__ import annotations
 
 from typing import Any, Sequence
 
-from hypothesis import strategies as st
+try:
+    from hypothesis import strategies as st
+except ImportError as e:  # pragma: no cover
+    raise ImportError(
+        "ensemble_symmetry_audit.strategies requires the optional "
+        "`hypothesis` dependency. Install it with:\n\n"
+        "    pip install ensemble-symmetry-audit[shrink]\n"
+    ) from e
 
 
 def vote_lists(classes: Sequence[Any], n_voters: int) -> st.SearchStrategy:

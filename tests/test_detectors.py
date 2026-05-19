@@ -10,6 +10,7 @@ from ensemble_symmetry_audit.detectors import (
     monotonicity,
     null_majority_abstention,
     pareto_unanimity,
+    participation_monotonicity,
     permutation_invariance,
     regime_flip_invariance,
     tie_break_determinism,
@@ -153,12 +154,28 @@ def test_monotonicity_fails_for_antitone():
 def test_permutation_passes_for_fair():
     r = permutation_invariance(fair_majority, CLASSES, n_voters=9, seed=0)
     assert r.passed, r
+    assert r.statistic["mode"] == "transpositions"
 
 
 def test_permutation_fails_for_order_dependent():
     r = permutation_invariance(order_dependent, CLASSES, n_voters=9, seed=0)
     assert not r.passed
     assert r.counterexample is not None
+    # Counterexample should report adjacent swap indices
+    assert "swapped_indices" in r.counterexample
+
+
+def test_permutation_random_mode_runs():
+    r = permutation_invariance(fair_majority, CLASSES, n_voters=9, seed=0,
+                               mode="random")
+    assert r.passed, r
+    assert r.statistic["mode"] == "random"
+
+
+def test_permutation_rejects_unknown_mode():
+    import pytest
+    with pytest.raises(ValueError):
+        permutation_invariance(fair_majority, CLASSES, n_voters=5, mode="bogus")
 
 
 # --- tie_break_determinism -------------------------------------------------
@@ -187,6 +204,48 @@ def test_pareto_fails_for_constant_aggregator():
     assert r.counterexample is not None
     # Unanimity for non-A classes is violated
     assert r.counterexample["unanimous_for"] != "A"
+
+
+def test_pareto_reports_construction():
+    r = pareto_unanimity(fair_majority, CLASSES, n_voters=7, seed=0)
+    assert r.cases_tested == len(CLASSES)
+    assert "construction" in r.notes
+
+
+# --- participation_monotonicity (NEW v0.4) --------------------------------
+
+def test_participation_passes_for_fair():
+    for target in CLASSES:
+        r = participation_monotonicity(
+            fair_majority, CLASSES, target, n_voters=7, seed=0
+        )
+        assert r.passed, r
+
+
+def test_participation_fails_for_no_show_paradox():
+    """An aggregator that flips against 'all-B' explicitly violates
+    participation: if a single B vote is the small winner, adding
+    another B vote makes the ballot unanimous-B, which this aggregator
+    rejects."""
+    def deliberately_paradoxical(votes):
+        counts = Counter(votes)
+        # Edge case: when ballot is unanimous-B and has at least 2
+        # voters, flip to A. Otherwise plain alphabetical majority.
+        if len(votes) >= 2 and counts.get("B", 0) == len(votes):
+            return "A"
+        if not counts:
+            return "A"
+        top = max(counts.values())
+        winners = sorted(c for c, k in counts.items() if k == top)
+        return winners[0]
+
+    # small=[B] (n=1) → B wins. Adding B: [B,B] → flip rule → A.
+    # Violation: target B was small_winner, became A.
+    r = participation_monotonicity(deliberately_paradoxical, ["A", "B"],
+                                   target_class="B", n_voters=2,
+                                   n_trials=50, seed=0)
+    assert not r.passed, r
+    assert r.counterexample is not None
 
 
 # --- independence_of_irrelevant_alternatives (NEW) ------------------------

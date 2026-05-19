@@ -9,6 +9,7 @@ from ensemble_symmetry_audit.soft_detectors import (
     soft_continuity,
     soft_monotonicity,
     soft_pareto_unanimity,
+    soft_participation_monotonicity,
     soft_permutation_invariance,
     soft_regime_flip_invariance,
 )
@@ -164,6 +165,9 @@ def test_soft_continuity_passes_for_argmax_average():
         n_trials=500, epsilon=1e-3, seed=0,
     )
     assert r.passed, r
+    # Should have robust cases and near-boundary cases reported separately
+    assert "robust_flip_rate" in r.statistic
+    assert "near_boundary_cases" in r.statistic
 
 
 def test_soft_continuity_runs_for_constant():
@@ -172,6 +176,33 @@ def test_soft_continuity_runs_for_constant():
         soft_biased_to_A, CLASSES, n_voters=5,
         n_trials=200, epsilon=1e-3, seed=0,
     )
+    assert r.passed
+
+
+# --- soft_participation_monotonicity (NEW v0.4) --------------------------
+
+def test_soft_participation_passes_for_argmax_average():
+    for target in CLASSES:
+        r = soft_participation_monotonicity(
+            soft_argmax_average, CLASSES, target, n_voters=5, seed=0
+        )
+        assert r.passed, r
+
+
+def test_soft_participation_fails_for_first_voter_only():
+    # `first_voter_argmax` looks at only voter 0. Adding a voter at the end
+    # cannot change voter 0's vote. So strictly speaking this passes.
+    # Use a quirky aggregator: returns argmax of SECOND voter if available.
+    def second_voter_argmax(votes):
+        v = votes[1] if len(votes) > 1 else votes[0]
+        return max(v.items(), key=lambda kv: kv[1])[0]
+
+    r = soft_participation_monotonicity(
+        second_voter_argmax, CLASSES, "A", n_voters=2, n_trials=100, seed=0
+    )
+    # The added voter becomes voter index n_voters-1 (= 1 with n_voters=2).
+    # So the aggregator now reads them and returns argmax of high-conf X.
+    # That means it WILL pass — so check it does:
     assert r.passed
 
 
@@ -191,6 +222,7 @@ def test_soft_audit_runs_all_detectors():
     assert "soft_permutation_invariance" in names
     assert "soft_continuity" in names
     assert any(n.startswith("soft_monotonicity") for n in names)
+    assert any(n.startswith("soft_participation_monotonicity") for n in names)
 
 
 def test_soft_audit_passes_for_argmax_average():

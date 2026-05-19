@@ -40,6 +40,7 @@ def test_audit_runs_core_detectors():
     assert "tie_break_determinism" in names
     assert "independence_of_irrelevant_alternatives" in names
     assert any(n.startswith("monotonicity") for n in names)
+    assert any(n.startswith("participation_monotonicity") for n in names)
 
 
 def test_audit_null_majority_is_opt_in():

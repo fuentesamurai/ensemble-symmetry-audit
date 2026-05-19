@@ -14,8 +14,15 @@ from __future__ import annotations
 
 from typing import Any, Callable, Sequence
 
-from hypothesis import HealthCheck, find, settings
-from hypothesis import strategies as st
+try:
+    from hypothesis import HealthCheck, find, settings
+    from hypothesis import strategies as st
+except ImportError as e:  # pragma: no cover
+    raise ImportError(
+        "ensemble_symmetry_audit.hypothesis_search requires the optional "
+        "`hypothesis` dependency. Install it with:\n\n"
+        "    pip install ensemble-symmetry-audit[shrink]\n"
+    ) from e
 
 from .strategies import (
     probability_vote_lists,

@@ -284,37 +284,88 @@ def permutation_invariance(
     classes: Sequence[Vote],
     n_voters: int,
     n_trials: int = 200,
-    n_shuffles: int = 5,
     seed: int = 42,
+    mode: str = "transpositions",
 ) -> DetectorResult:
-    """Output should depend on the multiset of votes, not voter order."""
+    """Output should depend on the multiset of votes, not voter order.
+
+    Two modes are supported:
+
+    - ``mode="transpositions"`` (default): test invariance under every
+      adjacent transposition of voters. If the aggregator commutes with
+      all `n_voters - 1` adjacent swaps, it commutes with all of `S_n`
+      by composition (the adjacent transpositions generate the
+      symmetric group). This is exhaustive coverage at linear cost.
+
+    - ``mode="random"``: sample random shuffles. Useful as a quick
+      smoke test but statistically weak for large `n_voters` —
+      `200` random samples from `S_11` (~40M elements) catch insertion-
+      order bugs but miss subtle order-pair dependencies.
+    """
+    if mode not in {"transpositions", "random"}:
+        raise ValueError(f"unknown mode: {mode!r}")
+
     rng = random.Random(seed)
     failures: list[dict] = []
-    for _ in range(n_trials):
-        votes = [rng.choice(classes) for _ in range(n_voters)]
-        base = vote_fn(list(votes))
-        for _ in range(n_shuffles):
-            shuf = list(votes)
-            rng.shuffle(shuf)
-            shuf_out = vote_fn(shuf)
-            if shuf_out != base:
-                failures.append({
-                    "votes": votes,
-                    "shuffled": shuf,
-                    "out_base": base,
-                    "out_shuffled": shuf_out,
-                })
+
+    if mode == "transpositions":
+        for _ in range(n_trials):
+            votes = [rng.choice(classes) for _ in range(n_voters)]
+            base = vote_fn(list(votes))
+            for i in range(n_voters - 1):
+                if votes[i] == votes[i + 1]:
+                    continue  # swap is identity, skip
+                swapped = list(votes)
+                swapped[i], swapped[i + 1] = swapped[i + 1], swapped[i]
+                if vote_fn(swapped) != base:
+                    failures.append({
+                        "votes": votes,
+                        "swapped_indices": [i, i + 1],
+                        "swapped": swapped,
+                        "out_base": base,
+                        "out_swapped": vote_fn(swapped),
+                    })
+                    break
+            if len(failures) >= 3:
                 break
-        if len(failures) >= 3:
-            break
+        cases_tested = n_trials
+        notes = (
+            "Exhaustive: invariance under all adjacent transpositions "
+            "implies invariance under the full symmetric group S_n."
+        )
+    else:  # random
+        n_shuffles = 5
+        for _ in range(n_trials):
+            votes = [rng.choice(classes) for _ in range(n_voters)]
+            base = vote_fn(list(votes))
+            for _ in range(n_shuffles):
+                shuf = list(votes)
+                rng.shuffle(shuf)
+                shuf_out = vote_fn(shuf)
+                if shuf_out != base:
+                    failures.append({
+                        "votes": votes,
+                        "shuffled": shuf,
+                        "out_base": base,
+                        "out_shuffled": shuf_out,
+                    })
+                    break
+            if len(failures) >= 3:
+                break
+        cases_tested = n_trials
+        notes = (
+            "Random shuffles — sparse coverage of S_n for large n_voters. "
+            "Use mode='transpositions' for exhaustive coverage."
+        )
 
     passed = not failures
     return DetectorResult(
         name="permutation_invariance",
         passed=passed,
-        cases_tested=n_trials,
+        cases_tested=cases_tested,
         counterexample=failures[0] if failures else None,
-        notes="Output must depend on the vote multiset, not voter order.",
+        statistic={"mode": mode},
+        notes=notes,
     )
 
 
@@ -368,45 +419,122 @@ def pareto_unanimity(
     vote_fn: VoteFunction,
     classes: Sequence[Vote],
     n_voters: int,
-    n_trials: int = 200,
-    seed: int = 42,
+    seed: int = 42,  # accepted for API consistency; unused
 ) -> DetectorResult:
     """If every voter votes X, the aggregator must return X.
 
-    This is the Pareto / unanimity condition from social choice theory
-    (May 1952; Arrow 1951). It is the most basic sanity property a
-    voting rule should satisfy: aggregators that violate it are
-    overriding the unanimous will of the voters, usually because of
-    miscalibrated weights, threshold bugs, or hidden defaults.
+    The Pareto / unanimity condition from social choice theory
+    (May 1952; Arrow 1951). Tested deterministically: one unanimous
+    ballot per class, total `len(classes)` cases. Random sampling
+    would be the wrong tool here — unanimity has probability 1/k^n of
+    arising by chance, so random trials only test against unanimity
+    by accident.
+
+    Aggregators that violate this property are overriding the
+    unanimous will of the voters: usually a miscalibrated weight,
+    a threshold bug, or a hidden default.
     """
     failures: list[dict] = []
     for c in classes:
-        for _ in range(max(n_trials // max(len(classes), 1), 1)):
-            votes = [c] * n_voters
-            out = vote_fn(votes)
-            if out != c:
-                failures.append({
-                    "unanimous_for": c,
-                    "votes": votes,
-                    "output": out,
-                })
-                break
-        if len(failures) >= 3:
-            break
+        votes = [c] * n_voters
+        out = vote_fn(votes)
+        if out != c:
+            failures.append({
+                "unanimous_for": c,
+                "votes": votes,
+                "output": out,
+            })
 
-    cases = n_trials
     passed = not failures
     return DetectorResult(
         name="pareto_unanimity",
         passed=passed,
-        cases_tested=cases,
+        cases_tested=len(classes),
         counterexample=failures[0] if failures else None,
-        notes="Unanimous input must yield the unanimous choice (Pareto / May 1952).",
+        notes=(
+            f"{len(classes)} unanimous ballots (one per class) generated "
+            f"by construction. Unanimous input must yield the unanimous "
+            f"choice (Pareto / May 1952)."
+        ),
     )
 
 
 # ---------------------------------------------------------------------------
-# 8. Independence of Irrelevant Alternatives  (NEW in v0.2.0)
+# Participation monotonicity  (NEW in v0.4.0)
+# ---------------------------------------------------------------------------
+
+def participation_monotonicity(
+    vote_fn: VoteFunction,
+    classes: Sequence[Vote],
+    target_class: Vote,
+    n_voters: int,
+    n_trials: int = 200,
+    seed: int = 42,
+) -> DetectorResult:
+    """Adding a new voter who votes X should not move the winner *away*
+    from X.
+
+    Distinct from `monotonicity()`, which keeps the voter count fixed
+    and changes an existing voter's choice. Participation
+    monotonicity tests the *no-show paradox*: a voter abstains, the
+    aggregator returns X; the same voter shows up and votes X, and
+    now the aggregator returns some Y != X. That is participation
+    monotonicity violated.
+
+    This is the property that breaks under Condorcet, instant-runoff
+    voting (IRV), and other threshold-based rules. Plain majority
+    voting satisfies it trivially.
+
+    Test procedure: for each random ballot of size `n_voters - 1`
+    whose aggregated winner is X, append one vote for X and check
+    that the winner is still X. Discards trials where the original
+    winner is already not X.
+    """
+    if n_voters < 2:
+        return DetectorResult(
+            name=f"participation_monotonicity[{target_class}]",
+            passed=True,
+            cases_tested=0,
+            notes="Participation monotonicity is trivial for n_voters < 2 — skipped.",
+        )
+
+    rng = random.Random(seed)
+    violations: list[dict] = []
+    n_eligible = 0
+    for _ in range(n_trials):
+        small = [rng.choice(classes) for _ in range(n_voters - 1)]
+        out_small = vote_fn(small)
+        if out_small != target_class:
+            continue
+        n_eligible += 1
+        with_added = small + [target_class]
+        out_added = vote_fn(with_added)
+        if out_added != target_class:
+            violations.append({
+                "small_votes": small,
+                "added_vote_for": target_class,
+                "winner_without_new_voter": out_small,
+                "winner_with_new_voter": out_added,
+            })
+            if len(violations) >= 3:
+                break
+
+    passed = not violations
+    return DetectorResult(
+        name=f"participation_monotonicity[{target_class}]",
+        passed=passed,
+        cases_tested=n_eligible,
+        counterexample=violations[0] if violations else None,
+        statistic={"trials_total": n_trials, "trials_eligible": n_eligible},
+        notes=(
+            "Adding a voter who votes X must not move the winner away from "
+            "X (no-show paradox / participation criterion)."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Independence of Irrelevant Alternatives  (NEW in v0.2.0)
 # ---------------------------------------------------------------------------
 
 def independence_of_irrelevant_alternatives(
@@ -419,17 +547,34 @@ def independence_of_irrelevant_alternatives(
     """Removing a losing class should not change the choice between the
     remaining classes.
 
-    Arrow's IIA in its applied form: take any random ballot v, find its
-    winner w = vote_fn(v). Pick any class L that is strictly behind w in
-    the vote tally (a "loser"). Replace every L vote in v with a uniformly
-    chosen non-L class to obtain v'. The winner of v' should still be w.
+    This is the **"replace losing votes"** variant of Arrow's IIA, as
+    distinct from the **"add new losing alternative"** variant — both
+    are called IIA in different literatures and they test different
+    things.
 
-    Arrow's theorem (1951) proves that no deterministic aggregator over
-    three or more classes can simultaneously satisfy unanimity, IIA, and
-    non-dictatorship. This detector therefore *expects* most non-trivial
-    3+ class aggregators to fail it. The point of running it is to
-    quantify and locate the violations, not to be surprised by their
-    existence.
+    Procedure (replace-losing-votes variant):
+
+      1. Sample a random ballot v with n_voters votes drawn uniformly
+         from `classes`.
+      2. Compute the winner w = vote_fn(v) and its vote count.
+      3. Identify a "loser" L: any class with strictly fewer votes
+         than w in v.
+      4. Replace every L vote in v with a uniformly chosen non-L class
+         to obtain v'. (We do *not* remove the L class from the label
+         set — we re-distribute those voters' choices.)
+      5. The winner of v' should still be w. If not, IIA is violated.
+
+    Arrow's theorem (1951) proves that no deterministic aggregator
+    over three or more classes can simultaneously satisfy unanimity,
+    IIA, and non-dictatorship. This detector therefore *expects* most
+    non-trivial 3+ class aggregators to fail it. The point of running
+    it is to quantify and locate the violations, not to be surprised
+    by their existence.
+
+    For the alternative "add new losing alternative" formulation,
+    write a custom test using `ensemble_symmetry_audit.strategies` —
+    it requires constructing ballots with a fresh class label, which
+    is a different generative setup.
     """
     if len(classes) < 3:
         return DetectorResult(

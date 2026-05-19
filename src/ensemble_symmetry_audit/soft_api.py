@@ -10,6 +10,7 @@ from .soft_detectors import (
     soft_continuity,
     soft_monotonicity,
     soft_pareto_unanimity,
+    soft_participation_monotonicity,
     soft_permutation_invariance,
     soft_regime_flip_invariance,
 )
@@ -80,6 +81,11 @@ def soft_audit(
         report.results.append(
             soft_monotonicity(
                 vote_fn, classes, target, n_voters, seed=seed + 3
+            )
+        )
+        report.results.append(
+            soft_participation_monotonicity(
+                vote_fn, classes, target, n_voters, seed=seed + 6
             )
         )
     report.results.append(

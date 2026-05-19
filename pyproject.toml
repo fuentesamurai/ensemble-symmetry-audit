@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ensemble-symmetry-audit"
-version = "0.3.0"
-description = "Property-based audit of voting ensemble aggregators. Hypothesis-driven counterexample search across hard and soft (probabilistic) voting."
+version = "0.4.0"
+description = "Property-based audit of voting ensemble aggregators. Hard and soft voting, statistical tests, and (optional) Hypothesis-driven counterexample shrinking."
 readme = "README.md"
 license = {text = "MIT"}
 authors = [{name = "Diego de la Fuente"}]
@@ -38,11 +38,11 @@ classifiers = [
 dependencies = [
     "scipy>=1.10",
     "numpy>=1.20",
-    "hypothesis>=6.90",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "scikit-learn>=1.3"]
+shrink = ["hypothesis>=6.90"]
+dev = ["pytest>=7.0", "scikit-learn>=1.3", "hypothesis>=6.90"]
 
 [project.urls]
 Homepage = "https://github.com/fuentesamurai/ensemble-symmetry-audit"
