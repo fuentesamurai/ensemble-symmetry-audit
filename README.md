@@ -152,6 +152,28 @@ innocent-looking three-class rules side by side:
 `np.argmax(np.bincount(...))`, which silently favours lower-indexed
 labels.
 
+## Case study: auditing scikit-learn's voting ensembles
+
+`examples/case_study_sklearn.py` maps the bias quantitatively across
+twelve `(n_classes, n_voters)` configurations of sklearn's hard- and
+soft-voting ensembles. Headline findings:
+
+- **Hard voting** (`VotingClassifier(voting='hard')`, `BaggingClassifier`,
+  `RandomForestClassifier` hard-vote fallback) **fails balanced-input
+  symmetry in all 12 configurations** at α=0.01.
+- The worst case is K=10 classes, N=3 voters: class 0 wins
+  **23.8% of decisions instead of the expected 10%** — a +138%
+  relative advantage from the positional `np.argmax` tie-break alone.
+- **Soft voting** (`VotingClassifier(voting='soft')`,
+  `RandomForestClassifier.predict()`, `ExtraTreesClassifier.predict()`,
+  `BaggingClassifier(voting='soft')`) passes the same test in **11 of
+  12 configurations**: real-valued probability averaging almost never
+  produces exact ties for the tie-break to bite.
+
+The full grid output, including chi-squared statistics and p-values,
+is saved to `examples/case_study_sklearn_results.json` and discussed
+in the accompanying blog post.
+
 ## Soft voting
 
 If your aggregator operates on probability distributions rather than
