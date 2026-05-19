@@ -42,13 +42,18 @@ result (chi-squared goodness-of-fit, one-sided binomial) with an
 explicit significance level, so the audit conclusions are reproducible
 across runs and defensible against reviewers.
 
+The same eight properties also have **soft-voting** counterparts (see
+`Soft voting` below) for aggregators that operate on probability
+distributions instead of categorical votes.
+
 ## Install
 
 ```
 pip install ensemble-symmetry-audit
 ```
 
-Python 3.10+. Requires `scipy>=1.10` (used for `chisquare` and `binomtest`).
+Python 3.10+. Pulls in `scipy>=1.10`, `numpy>=1.20`, and
+`hypothesis>=6.90` as runtime dependencies.
 
 ## Quick start
 
@@ -147,6 +152,71 @@ innocent-looking three-class rules side by side:
 `np.argmax(np.bincount(...))`, which silently favours lower-indexed
 labels.
 
+## Soft voting
+
+If your aggregator operates on probability distributions rather than
+categorical labels — e.g. averaging `predict_proba` outputs and taking
+the argmax, as `sklearn.ensemble.VotingClassifier(voting="soft")` does —
+use `soft_audit()`:
+
+```python
+from ensemble_symmetry_audit import soft_audit
+
+def my_soft_aggregator(votes):
+    # votes: List[Dict[class, prob]]
+    summed = {}
+    for v in votes:
+        for c, p in v.items():
+            summed[c] = summed.get(c, 0.0) + p
+    return max(summed, key=summed.get)
+
+report = soft_audit(my_soft_aggregator,
+                    classes=["A", "B", "C"],
+                    n_voters=5,
+                    seed=42)
+print(report)
+```
+
+The soft suite mirrors the hard suite with one additional property:
+
+| # | Property                                 | What it catches                                           |
+|---|------------------------------------------|-----------------------------------------------------------|
+| 1 | **Soft Pareto / unanimity**              | Aggregator that ignores high-confidence unanimous voters |
+| 2 | **Soft balanced-input symmetry**         | Skew under Dirichlet-uniform random probabilities         |
+| 3 | **Soft regime-flip invariance**          | Asymmetry under probability permutation                   |
+| 4 | **Soft monotonicity**                    | Moving probability mass *toward* X moving output *away*   |
+| 5 | **Soft permutation invariance**          | Output depending on voter order                           |
+| 6 | **Soft continuity** *(new in v0.3)*      | Tiny probability perturbations flipping the output        |
+
+`examples/04_sklearn_soft_voting.py` audits `VotingClassifier(voting="soft")`
+and demonstrates the contrast with the hard-voting case: soft voting
+passes every property, while hard voting fails balance because of the
+positional tie-break.
+
+## Hypothesis-driven counterexample shrinking
+
+Random sampling is fast and sufficient for routine audits, but when a
+property fails you often want the **smallest** input that breaks it,
+not the first one. v0.3 ships `shrink_hard_counterexample()` and
+`shrink_soft_counterexample()`, thin wrappers around
+[`hypothesis.find()`](https://hypothesis.readthedocs.io/) that do
+adversarial search plus automatic shrinking:
+
+```python
+from ensemble_symmetry_audit import shrink_hard_counterexample
+
+minimal = shrink_hard_counterexample(
+    lambda votes: my_aggregator(votes) != "expected",
+    classes=["A", "B", "C"],
+    n_voters=11,
+)
+print(minimal)  # the smallest violating example, after shrinking
+```
+
+The Hypothesis strategies are also re-exported under
+`ensemble_symmetry_audit.strategies` if you want to drive your own
+`@given` tests directly.
+
 ## Calling individual detectors
 
 ```python
@@ -191,9 +261,10 @@ single decision.
 - Demographic bias (race, gender, age, geography) in the underlying
   classifiers or in their training data. That is a different problem
   with different tooling (`fairlearn`, `aif360`, etc.).
-- Soft / probabilistic votes (List[Dict[class, prob]]). The current
-  version handles categorical votes only; probabilistic support is on
-  the roadmap.
+- Calibration of the *probabilities* produced by soft-voting
+  ensembles. The library tests structural properties of the
+  aggregation function, not whether the resulting probabilities are
+  well-calibrated against empirical frequencies.
 
 If your aggregation step is non-trivial enough to warrant an audit,
 this library is for you. If you need to audit demographic fairness or
@@ -201,11 +272,14 @@ classifier accuracy, use the established tools for those problems.
 
 ## Roadmap
 
-- v0.3: Hypothesis integration (directed counterexample search +
-  shrinking), soft-voting / probabilistic vote support.
-- v0.4: Adapters for sklearn `VotingClassifier`, `StackingClassifier`,
-  XGBoost / LightGBM ensembles.
-- v0.5: CI reporters (JUnit XML, GitHub Actions annotations).
+- v0.4: First-class adapters for sklearn `VotingClassifier`,
+  `StackingClassifier`, XGBoost / LightGBM ensembles (one-liner
+  wrappers — currently shown in `examples/03` and `examples/04`).
+- v0.5: CI reporters (JUnit XML, GitHub Actions annotations) and
+  HTML / Markdown report exporters.
+- v0.6: Soft-vote calibration property tests (does the ensemble's
+  marginal probability match empirical frequencies under known
+  generative distributions).
 
 ## Contributing
 

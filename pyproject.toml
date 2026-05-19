@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ensemble-symmetry-audit"
-version = "0.2.0"
-description = "Property-based audit of voting ensemble aggregators. Catches structural asymmetries (Pareto, IIA, monotonicity, flip invariance, permutation invariance, tie-break determinism) that unit tests miss."
+version = "0.3.0"
+description = "Property-based audit of voting ensemble aggregators. Hypothesis-driven counterexample search across hard and soft (probabilistic) voting."
 readme = "README.md"
 license = {text = "MIT"}
 authors = [{name = "Diego de la Fuente"}]
@@ -13,8 +13,10 @@ requires-python = ">=3.10"
 keywords = [
     "ensemble",
     "voting",
+    "soft-voting",
     "social-choice",
     "property-testing",
+    "hypothesis",
     "machine-learning",
     "quant",
     "classifier",
@@ -22,7 +24,7 @@ keywords = [
     "audit",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -35,6 +37,8 @@ classifiers = [
 ]
 dependencies = [
     "scipy>=1.10",
+    "numpy>=1.20",
+    "hypothesis>=6.90",
 ]
 
 [project.optional-dependencies]
