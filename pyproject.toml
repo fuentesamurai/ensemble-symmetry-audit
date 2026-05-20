@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ensemble-symmetry-audit"
-version = "0.4.2"
+version = "0.4.3"
 description = "Property-based audit of voting ensemble aggregators. Hard and soft voting, statistical tests, and (optional) Hypothesis-driven counterexample shrinking."
 readme = "README.md"
 license = {text = "MIT"}

@@ -15,6 +15,7 @@ from .detectors import (
     DetectorResult,
     balanced_input_symmetry,
     independence_of_irrelevant_alternatives,
+    min_n_trials_for_balance,
     monotonicity,
     null_majority_abstention,
     pareto_unanimity,
@@ -41,6 +42,7 @@ __all__ = [
     "DetectorResult",
     # hard detectors
     "balanced_input_symmetry",
+    "min_n_trials_for_balance",
     "regime_flip_invariance",
     "null_majority_abstention",
     "monotonicity",
@@ -60,7 +62,7 @@ __all__ = [
     "soft_regime_flip_invariance",
 ]
 
-__version__ = "0.4.2"
+__version__ = "0.4.3"
 
 
 def __getattr__(name):

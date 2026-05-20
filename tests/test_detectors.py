@@ -7,6 +7,7 @@ from collections import Counter
 from ensemble_symmetry_audit.detectors import (
     balanced_input_symmetry,
     independence_of_irrelevant_alternatives,
+    min_n_trials_for_balance,
     monotonicity,
     null_majority_abstention,
     pareto_unanimity,
@@ -270,3 +271,40 @@ def test_iia_runs_for_three_classes():
         assert r.counterexample is not None
         assert "winner" in r.counterexample
         assert "new_winner" in r.counterexample
+
+
+# --- min_n_trials_for_balance (NEW v0.4.3) --------------------------------
+
+def test_min_n_trials_monotone_in_deviation():
+    """Smaller deviations require more trials to detect at fixed power."""
+    n_small = min_n_trials_for_balance(2, 0.02)
+    n_large = min_n_trials_for_balance(2, 0.10)
+    assert n_small > n_large
+
+
+def test_min_n_trials_monotone_in_classes():
+    """More classes require more trials at fixed deviation and power."""
+    n_few = min_n_trials_for_balance(2, 0.05)
+    n_many = min_n_trials_for_balance(10, 0.05)
+    assert n_many > n_few
+
+
+def test_min_n_trials_51_49_skew_needs_many_trials():
+    """The reviewer's case: 51/49 binary skew is hard to detect."""
+    n = min_n_trials_for_balance(2, 0.02)
+    # Should be substantially more than the default 2000
+    assert n > 10_000
+
+
+def test_min_n_trials_validates_inputs():
+    import pytest
+    with pytest.raises(ValueError):
+        min_n_trials_for_balance(1, 0.05)
+    with pytest.raises(ValueError):
+        min_n_trials_for_balance(3, 0.0)
+    with pytest.raises(ValueError):
+        min_n_trials_for_balance(3, 1.5)
+    with pytest.raises(ValueError):
+        min_n_trials_for_balance(3, 0.05, alpha=0)
+    with pytest.raises(ValueError):
+        min_n_trials_for_balance(3, 0.05, power=1.5)

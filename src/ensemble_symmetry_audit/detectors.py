@@ -32,7 +32,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Sequence
 
-from scipy.stats import chisquare, binomtest
+from scipy.stats import chisquare, binomtest, chi2 as _chi2_dist, ncx2 as _ncx2_dist
 
 Vote = Any
 VoteFunction = Callable[[Sequence[Vote]], Vote]
@@ -601,7 +601,12 @@ def independence_of_irrelevant_alternatives(
             name="independence_of_irrelevant_alternatives",
             passed=True,
             cases_tested=0,
-            notes="IIA is trivially satisfied with fewer than 3 classes — skipped.",
+            notes=(
+                f"Skipped: IIA is vacuously satisfied with {len(classes)} "
+                f"classes. There is no third 'irrelevant' alternative to "
+                f"add or remove, so the property cannot be violated. "
+                f"Run with 3+ classes to test IIA non-trivially."
+            ),
         )
 
     rng = random.Random(seed)
@@ -645,3 +650,82 @@ def independence_of_irrelevant_alternatives(
             "and universal domain simultaneously."
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Sample-size helper for balanced_input_symmetry
+# ---------------------------------------------------------------------------
+
+def min_n_trials_for_balance(
+    n_classes: int,
+    max_relative_deviation: float,
+    alpha: float = 0.01,
+    power: float = 0.8,
+) -> int:
+    """Minimum `n_trials` for `balanced_input_symmetry` to detect a skew
+    of the given size with the given probability.
+
+    Inputs
+    ------
+    n_classes
+        Number of possible output classes (K).
+    max_relative_deviation
+        Smallest relative deviation from uniform you want to *detect*,
+        expressed as (observed - expected) / expected for the worst
+        class. For example, 0.05 means "any class taking 5% more or less
+        than its share". A 51/49 skew in binary classification has
+        max_relative_deviation = 0.02.
+    alpha
+        Significance level of the chi-squared test (default 1%).
+    power
+        Desired probability of detecting the deviation (default 80%).
+
+    Returns
+    -------
+    The smallest n_trials such that the chi-squared goodness-of-fit
+    test has at least `power` probability of rejecting H0 (uniform)
+    when the true output distribution differs from uniform by at most
+    `max_relative_deviation` in the worst class.
+
+    Notes
+    -----
+    Uses the standard non-central chi-squared approximation. The skew
+    is modelled as one class taking max_relative_deviation more / less
+    than its share, with the deficit redistributed uniformly across
+    the other classes. Cohen's effect size for that configuration:
+    `w = max_relative_deviation / sqrt(n_classes - 1)`.
+
+    Examples
+    --------
+    >>> min_n_trials_for_balance(n_classes=2, max_relative_deviation=0.02)
+    # ~25000 — the n_trials needed to reliably catch 51/49 skews
+    >>> min_n_trials_for_balance(n_classes=3, max_relative_deviation=0.05)
+    # ~3500 — catches 5% relative deviations in 3-class
+    >>> min_n_trials_for_balance(n_classes=10, max_relative_deviation=0.10)
+    # ~1500 — catches 10% deviations in 10-class
+    """
+    import math
+    if n_classes < 2:
+        raise ValueError("n_classes must be at least 2.")
+    if not 0 < max_relative_deviation < 1:
+        raise ValueError("max_relative_deviation must be in (0, 1).")
+    if not 0 < alpha < 1:
+        raise ValueError("alpha must be in (0, 1).")
+    if not 0 < power < 1:
+        raise ValueError("power must be in (0, 1).")
+
+    df = n_classes - 1
+    w = max_relative_deviation / math.sqrt(n_classes - 1)
+    critical = _chi2_dist.ppf(1 - alpha, df)
+
+    # Binary search for the smallest n such that P(ncx2 > critical) >= power
+    lo, hi = 10, 10_000_000
+    while lo < hi:
+        mid = (lo + hi) // 2
+        ncp = mid * w * w
+        achieved_power = 1 - _ncx2_dist.cdf(critical, df, ncp)
+        if achieved_power >= power:
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo

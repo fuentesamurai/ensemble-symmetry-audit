@@ -1,5 +1,9 @@
 # ensemble-symmetry-audit
 
+[![tests](https://github.com/fuentesamurai/ensemble-symmetry-audit/actions/workflows/tests.yml/badge.svg)](https://github.com/fuentesamurai/ensemble-symmetry-audit/actions/workflows/tests.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Property-based audit of voting ensemble aggregators.
 
 A small Python library that audits any voting, majority, or
@@ -221,6 +225,43 @@ to vary the search, set `seed=None` is not supported.
 `audit()` and `soft_audit()` expose a single base seed and derive
 per-detector seeds from it.
 
+### Choosing `n_trials` (statistical power)
+
+The default `n_trials = 2000` for `balanced_input_symmetry` has roughly
+80% power to detect skews of ~10% relative deviation. Smaller skews
+need more trials. The library ships a helper that returns the
+minimum `n_trials` for a given target skew:
+
+```python
+from ensemble_symmetry_audit import min_n_trials_for_balance
+
+# How many trials to reliably catch a 51/49 binary skew (deviation = 0.02)?
+min_n_trials_for_balance(n_classes=2, max_relative_deviation=0.02)
+# ~29,000
+
+# 5% deviation in 3-class:
+min_n_trials_for_balance(n_classes=3, max_relative_deviation=0.05)
+# ~11,000
+
+# 10% deviation in 10-class:
+min_n_trials_for_balance(n_classes=10, max_relative_deviation=0.10)
+# ~19,000
+```
+
+| Skew you want to catch       | K=2     | K=3     | K=10    |
+|------------------------------|---------|---------|---------|
+| ±10% (e.g. 55/45 in binary)  | ~1,200  | ~2,800  | ~19,000 |
+| ±5%                          | ~4,600  | ~11,000 | ~77,000 |
+| ±2% (e.g. 51/49 in binary)   | ~29,000 | ~69,000 | ~480,000|
+
+(Default α=0.01, power=0.8. The helper uses non-central chi-squared
+to compute the minimum n; rounding is upward.)
+
+If your application cares about tiny skews — quant finance with K=2,
+risk decisions — bump `n_trials` accordingly. The default is
+deliberately calibrated to catch the "structurally important" range,
+not the "statistically significant but tiny" range.
+
 ### Computational cost
 
 Most detectors scale linearly in `n_voters` and `n_trials`. The one
@@ -294,7 +335,14 @@ single decision.
 
 ## Roadmap
 
-**Latest — v0.4.2** (May 2026):
+**Latest — v0.4.3** (May 2026):
+- GitHub Actions CI running pytest on Python 3.10 / 3.11 / 3.12 and
+  exercising every example script on every push and PR (badge above).
+- `min_n_trials_for_balance(K, deviation, alpha, power)` helper +
+  guidance table for choosing `n_trials` from a target skew.
+- IIA result on binary input now spells out *why* it is skipped.
+
+**Previous — v0.4.2:**
 - At-a-glance comparison table in README + reproducible
   `examples/comparison_table.py`.
 - Clean-pass Quick Start example, examples index, computational-cost
