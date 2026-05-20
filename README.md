@@ -22,20 +22,30 @@ fails. Hard *and* soft (probabilistic) voting are both supported.
 ## A concrete result first
 
 Pointed at `sklearn.ensemble.VotingClassifier(voting='hard')`, the
-audit produces a quantifiable, reproducible result:
+audit produces a quantifiable, reproducible result. With **uniform
+random input** (every voter picks a class uniformly at random), under
+sklearn's hard-voting rule, class index 0 wins more often than chance
+across every `(K, N)` configuration tested:
 
-> Under uniform random inputs, with K=10 classes and N=3 voters, class
-> 0 wins **23.8% of decisions** instead of the expected 10% — a +138%
-> relative advantage from the positional `np.argmax` tie-break alone.
-> Across all 12 (K, N) configurations tested, hard voting fails
-> balanced-input symmetry at α=0.01; soft voting passes in 11 of 12.
+| Configuration              | Class 0 wins | Expected | Relative advantage |
+|----------------------------|--------------|----------|--------------------|
+| K=3 classes, N=3 voters    | 45.3%        | 33.3%    | +36%               |
+| K=3 classes, N=11 voters   | 42.9%        | 33.3%    | +29%               |
+| K=5 classes, N=5 voters    | 26.5%        | 20.0%    | +33%               |
+| K=10 classes, N=3 voters   | **23.8%**    | **10.0%**| **+138%** *(worst)* |
+| K=10 classes, N=11 voters  | 17.4%        | 10.0%    | +74%               |
+
+All 12 configurations tested fail balanced-input symmetry at α=0.01;
+soft voting passes in 11 of 12. The worst case (K=10, N=3) is *worst*
+in this grid, not cherry-picked — see `examples/case_study_sklearn.py`
+for the full table including chi-squared statistics, p-values, and
+effect sizes.
 
 `np.argmax(np.bincount(...))` is a documented sklearn design choice,
 not a bug. What the library does is **quantify the structural cost**
 of that choice under symmetric input — useful when you need to decide
 whether the positional tie-break matters for your class set and voter
-count. The full grid is in `examples/case_study_sklearn.py`; the
-underlying technique is the rest of this README.
+count. The underlying technique is the rest of this README.
 
 ## The phantom voter
 
@@ -416,7 +426,14 @@ single decision.
 
 ## Roadmap
 
-**Latest — v0.5.1** (May 2026):
+**Latest — v0.5.2** (May 2026):
+- Sklearn finding now shows a five-row table across configurations
+  instead of a single worst-case number. Anti-cherry-pick: the +138%
+  is clearly the worst entry in a grid, not a hand-picked case.
+- "Beyond v0.6" line added explaining that the scope is intentionally
+  bounded — no aspirational long-term roadmap on a young repo.
+
+**Previous — v0.5.1:**
 - README restructured: the sklearn finding (concrete +138% bias) now
   leads, instead of being buried below the abstract discussion.
 - Explicit notes on when `balanced_input_symmetry` is informative
@@ -466,9 +483,13 @@ single decision.
 **v1.0 milestone** — API stability commitment. After v1.0, breaking
 changes follow semver and require a major bump.
 
-Plans beyond v0.6 will be added as they become concrete. The project
-is small on purpose, and a long aspirational roadmap on a young repo
-reads less well than a short honest one.
+**Beyond v0.6** — the scope is intentionally bounded. The nine
+properties grounded in social-choice theory and software-property
+testing are the project. New properties are added only when a concrete
+domain demands them (the soft suite was added because the case
+arose; the same standard applies to anything beyond what's already
+shipped). A long aspirational roadmap on a young repo reads worse
+than a short honest one.
 
 See [Releases](https://github.com/fuentesamurai/ensemble-symmetry-audit/releases)
 for the full version history.
