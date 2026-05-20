@@ -90,7 +90,38 @@ For optional Hypothesis-driven counterexample shrinking:
 pip install ensemble-symmetry-audit[shrink]
 ```
 
-## Quick start
+## Audit a trained sklearn classifier in one line
+
+v0.5 ships first-class adapters. Skip the wrapper boilerplate:
+
+```python
+from sklearn.ensemble import VotingClassifier
+from ensemble_symmetry_audit import audit_sklearn_classifier
+
+clf = VotingClassifier(estimators=[...], voting="hard").fit(X, y)
+
+report = audit_sklearn_classifier(clf, seed=42)
+print(report)
+```
+
+`audit_sklearn_classifier` detects the classifier type (Voting,
+Bagging, RandomForest, ExtraTrees, or anything else exposing
+`predict_proba` + `classes_`), picks the matching adapter, picks
+`audit()` or `soft_audit()`, and runs the full battery in one call.
+
+Specialised adapters are also exported individually in
+`ensemble_symmetry_audit.adapters.sklearn` if you want to wire the
+audit yourself. XGBoost and LightGBM have parallel adapters in
+`adapters.xgboost` and `adapters.lightgbm`.
+
+```
+pip install ensemble-symmetry-audit[sklearn]   # sklearn adapters
+pip install ensemble-symmetry-audit[xgboost]   # XGBoost adapter
+pip install ensemble-symmetry-audit[lightgbm]  # LightGBM adapter
+pip install ensemble-symmetry-audit[adapters]  # all of the above
+```
+
+## Quick start (custom aggregator)
 
 A clean audit on a well-behaved aggregator (binary majority, odd voter
 count — no ties possible):
@@ -307,6 +338,10 @@ the library tells you which trade-off each rule made.
 | `examples/case_study_sklearn.py`           | Grid audit across (K, N) of sklearn hard + soft voting       |
 | `examples/comparison_table.py`             | Generates the at-a-glance comparison table above             |
 
+Examples 03 and 04 use the v0.5 one-call adapter (`audit_sklearn_classifier`).
+The case study and comparison table use the lower-level audit
+functions directly to show how to build custom comparisons.
+
 ## Documentation
 
 - [docs/soft-voting.md](docs/soft-voting.md) — soft-voting suite,
@@ -335,7 +370,18 @@ single decision.
 
 ## Roadmap
 
-**Latest — v0.4.3** (May 2026):
+**Latest — v0.5.0** (May 2026):
+- First-class adapters for sklearn `VotingClassifier`,
+  `BaggingClassifier`, `RandomForestClassifier`, `ExtraTreesClassifier`,
+  plus a generic `adapt_argmax_proba_classifier` and adapters for
+  XGBoost / LightGBM.
+- One-call convenience `audit_sklearn_classifier(clf, seed=42)` that
+  detects the classifier type and runs the right audit suite.
+- Examples 03 / 04 now use the adapters — audit is a single line.
+- New optional extras: `[sklearn]`, `[xgboost]`, `[lightgbm]`,
+  `[adapters]` (all three).
+
+**Previous — v0.4.3:**
 - GitHub Actions CI running pytest on Python 3.10 / 3.11 / 3.12 and
   exercising every example script on every push and PR (badge above).
 - `min_n_trials_for_balance(K, deviation, alpha, power)` helper +
@@ -361,12 +407,11 @@ single decision.
 - Hypothesis as optional `[shrink]` extra.
 
 **Next:**
-- **v0.5** — first-class adapters for sklearn `VotingClassifier`,
-  `StackingClassifier`, XGBoost / LightGBM ensembles. One-liner
-  wrappers, replacing the current example-based audits.
 - **v0.6** — CI reporters (JUnit XML, GitHub Actions annotations) and
   HTML / Markdown report exporters.
 - **v0.7** — soft-vote calibration property tests.
+- **v0.8** — `StackingClassifier` adapter (meta-learner semantics
+  require their own audit shape).
 
 **v1.0 milestone** — API stability commitment and adapter coverage
 for the four most-used sklearn / XGBoost / LightGBM ensemble classes.

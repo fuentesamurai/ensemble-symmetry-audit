@@ -62,14 +62,15 @@ __all__ = [
     "soft_regime_flip_invariance",
 ]
 
-__version__ = "0.4.3"
+__version__ = "0.5.0"
 
 
 def __getattr__(name):
-    """Lazy access to optional Hypothesis-backed helpers.
+    """Lazy access to optional sub-packages.
 
-    `from ensemble_symmetry_audit import shrink_hard_counterexample`
-    works only if the `[shrink]` extra is installed.
+    Hypothesis-backed helpers require ``[shrink]``; sklearn adapters
+    require ``[sklearn]``; XGBoost / LightGBM adapters require their
+    respective extras.
     """
     if name in {
         "shrink_hard_counterexample",
@@ -88,4 +89,10 @@ def __getattr__(name):
             shrink_soft_counterexample,
         )
         return locals()[name]
+    if name == "adapters":
+        from . import adapters as _adapters
+        return _adapters
+    if name == "audit_sklearn_classifier":
+        from .adapters.sklearn import audit_sklearn_classifier
+        return audit_sklearn_classifier
     raise AttributeError(f"module 'ensemble_symmetry_audit' has no attribute {name!r}")
