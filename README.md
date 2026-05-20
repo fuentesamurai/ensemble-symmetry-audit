@@ -19,6 +19,24 @@ fails. Hard *and* soft (probabilistic) voting are both supported.
 > classifiers — that is a separate problem with its own established
 > tooling (see `Scope`).
 
+## A concrete result first
+
+Pointed at `sklearn.ensemble.VotingClassifier(voting='hard')`, the
+audit produces a quantifiable, reproducible result:
+
+> Under uniform random inputs, with K=10 classes and N=3 voters, class
+> 0 wins **23.8% of decisions** instead of the expected 10% — a +138%
+> relative advantage from the positional `np.argmax` tie-break alone.
+> Across all 12 (K, N) configurations tested, hard voting fails
+> balanced-input symmetry at α=0.01; soft voting passes in 11 of 12.
+
+`np.argmax(np.bincount(...))` is a documented sklearn design choice,
+not a bug. What the library does is **quantify the structural cost**
+of that choice under symmetric input — useful when you need to decide
+whether the positional tie-break matters for your class set and voter
+count. The full grid is in `examples/case_study_sklearn.py`; the
+underlying technique is the rest of this README.
+
 ## The phantom voter
 
 You can have eleven well-behaved voters and a clean weighted-majority
@@ -172,25 +190,6 @@ report.failed            # list of failing DetectorResults
 report.to_json()         # JSON for machine consumption
 ```
 
-## The sklearn finding
-
-Pointing the audit at `sklearn.ensemble.VotingClassifier(voting='hard')`
-produced a quantifiable, reproducible result that is worth flagging up
-front (see `examples/case_study_sklearn.py`):
-
-- Under uniform random inputs, with K=10 classes and N=3 voters, class
-  0 wins **23.8% of decisions** instead of the expected 10% — a +138%
-  relative advantage from the positional `np.argmax` tie-break.
-- All twelve `(K, N)` configurations tested fail balanced-input
-  symmetry; soft voting passes in eleven of twelve.
-
-To be clear: sklearn's `np.argmax(np.bincount(...))` is a documented,
-deterministic design choice, not a bug. The library quantifies the
-**structural cost of that choice** under symmetric input — useful when
-you need to know whether the positional tie-break matters for your
-class set and voter count, and worth knowing before shipping a hard
-voting ensemble into a domain where it would.
-
 ## What it tests
 
 Nine named properties, grouped by origin and purpose:
@@ -226,6 +225,53 @@ chi-squared rejects vanishingly small biases that may not be
 practically actionable; reading p-value and effect size together
 distinguishes "statistically significant but tiny" from "structurally
 important".
+
+#### Note on balanced-input symmetry
+
+This is the methodologically softest test of the eight. It asks: if
+the *input* to the aggregator is symmetric (every voter picks
+uniformly at random), is the *output* also symmetric? In production
+the input is rarely uniform — a financial ensemble trained against a
+mostly-bullish dataset will have voters biased toward BUY, and the
+test will flag the aggregator even when the bias is fully justified
+upstream.
+
+The property is still useful for two cases:
+
+1. **Audit of the aggregation rule in isolation** — set aside what
+   your voters actually emit, and ask whether the aggregator is
+   neutral on neutral input. The sklearn `argmax(bincount)` failures
+   we report fall into this case.
+
+2. **Symmetric domains** where uniform input is the right reference
+   (toy problems, balanced training sets, fairness-by-construction
+   contexts).
+
+If your production input is structurally asymmetric, treat a
+balanced-input failure as informational, not as an indictment of the
+ensemble — the matched failure pattern in `regime_flip_invariance`
+(which uses your declared label symmetry, not a default uniform one)
+is usually the more meaningful check.
+
+#### Note on null-majority abstention (opt-in)
+
+This property is `require_abstention=True` by default off because the
+two domains where the library most often gets used disagree on it:
+
+- **Allowed to abstain** (recommender systems with a "no
+  recommendation" fallback, content moderation with a "needs review"
+  bucket): the property is genuinely meaningful — when the evidence
+  is balanced, the aggregator should fall to the neutral class.
+
+- **Forced to decide** (most classification, financial trading
+  decisions with no HOLD option, medical triage that must classify):
+  abstention is not an option, so requiring the aggregator to abstain
+  on balanced input would be wrong. Enabling this property here would
+  produce systematic false positives.
+
+Pass `require_abstention=True` to `audit()` (along with a
+`neutral_class`) when your domain allows abstention. Leave it off
+otherwise.
 
 #### Note on regime-flip invariance
 
@@ -370,7 +416,15 @@ single decision.
 
 ## Roadmap
 
-**Latest — v0.5.0** (May 2026):
+**Latest — v0.5.1** (May 2026):
+- README restructured: the sklearn finding (concrete +138% bias) now
+  leads, instead of being buried below the abstract discussion.
+- Explicit notes on when `balanced_input_symmetry` is informative
+  (and when it produces false positives on biased production data).
+- Explicit reasoning for why `null_majority_abstention` is opt-in.
+- Roadmap shortened to the next concrete version only.
+
+**Previous — v0.5.0:**
 - First-class adapters for sklearn `VotingClassifier`,
   `BaggingClassifier`, `RandomForestClassifier`, `ExtraTreesClassifier`,
   plus a generic `adapt_argmax_proba_classifier` and adapters for
@@ -407,15 +461,14 @@ single decision.
 - Hypothesis as optional `[shrink]` extra.
 
 **Next:**
-- **v0.6** — CI reporters (JUnit XML, GitHub Actions annotations) and
-  HTML / Markdown report exporters.
-- **v0.7** — soft-vote calibration property tests.
-- **v0.8** — `StackingClassifier` adapter (meta-learner semantics
-  require their own audit shape).
+- **v0.6** — CI reporters (JUnit XML, GitHub Actions annotations).
 
-**v1.0 milestone** — API stability commitment and adapter coverage
-for the four most-used sklearn / XGBoost / LightGBM ensemble classes.
-After v1.0, breaking changes follow semver and require a major bump.
+**v1.0 milestone** — API stability commitment. After v1.0, breaking
+changes follow semver and require a major bump.
+
+Plans beyond v0.6 will be added as they become concrete. The project
+is small on purpose, and a long aspirational roadmap on a young repo
+reads less well than a short honest one.
 
 See [Releases](https://github.com/fuentesamurai/ensemble-symmetry-audit/releases)
 for the full version history.
